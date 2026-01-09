@@ -4,6 +4,7 @@ import requests
 import google.generativeai as genai
 from dotenv import find_dotenv, load_dotenv
 import re
+from PIL import Image
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -54,19 +55,41 @@ with st.sidebar:
         st.rerun()
 
 # --- MAIN AREA: SEARCH ---
-st.title("🍎 Add Your Meal")
-query = st.text_input("What did you just eat?", placeholder="e.g., 2 boiled eggs and an avocado")
+st.title("🥗 AI Image & Text Nutritionist")
+st.write("Upload a photo of your food or type the description below.")
 
-if query:
-    prompt = f"""
-    Analyze the food: "{query}"
-    Provide ONLY these exact lines:
-    PROTEIN: [number]
-    CARBS: [number]
-    FATS: [number]
-    CALORIES: [number]
-    ADVICE: [One sentence about this food]
-    """
+col_in1, col_in2 = st.columns(2)
+
+with col_in1:
+    uploaded_file = st.file_uploader("📸 Take a photo or upload", type=["jpg", "jpeg", "png"])
+    if uploaded_file:
+        img = Image.open(uploaded_file)
+        st.image(img, caption="Analyze this meal", use_container_width=True)
+
+with col_in2:
+    text_query = st.text_area("✍️ Or describe your meal:", placeholder="e.g. 2 eggs, 1 slice of whole wheat toast, and half an avocado")
+
+if st.button("🔍 Analyze Meal & Update Log"):
+    if not uploaded_file and not text_query:
+        st.warning("Please provide either a photo or a text description.")
+    else:
+        with st.spinner('AI is analyzing your meal...'):
+            # Prepare contents for Gemini
+            contents = []
+            if uploaded_file:
+                contents.append(Image.open(uploaded_file))
+            
+            user_input = text_query if text_query else "the food in the image"
+            
+            prompt = f"""
+            Analyze this food: {user_input}. 
+            Provide the nutritional estimate in this EXACT format:
+            PROTEIN: [number]
+            CARBS: [number]
+            FATS: [number]
+            ADVICE: [One short sentence of nutritional advice]
+            """
+            contents.append(prompt)
 
     with st.spinner('Analyzing...'):
         response = model.generate_content(prompt)
@@ -85,7 +108,7 @@ if query:
             st.session_state.daily_fats += f
 
             # Show results in columns
-            st.success(f"Added {query} to your daily log!")
+            st.success(f"Added {text_query} to your daily log!")
             col1, col2, col3 = st.columns(3)
             col1.metric("Protein", f"+{p}g")
             col2.metric("Carbs", f"+{c}g")
