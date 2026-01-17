@@ -1,10 +1,12 @@
 import streamlit as st
+import database as db
 import os
-import requests
 import google.generativeai as genai
 from dotenv import find_dotenv, load_dotenv
 import re
 from PIL import Image
+
+db.init_db()
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -117,6 +119,8 @@ if st.button("🔍 Analyze Meal & Update Log"):
             
             # This triggers a rerun to update the sidebar progress bars
             st.rerun()
+            db.save_meal(user_input, p, c, f)
+            st.success("Meal saved to history!")
 
         except Exception:
             st.error("AI returned unexpected format. Try again with a simpler food name.")
