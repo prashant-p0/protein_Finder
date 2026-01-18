@@ -67,7 +67,7 @@ with st.sidebar:
     
 
 # --- MAIN AREA: SEARCH ---
-st.title("🥗 AI Image & Text Nutritionist")
+#st.title("🥗 AI Image & Text Nutritionist")
 st.write("Upload a photo of your food or type the description below.")
 
 col_in1, col_in2 = st.columns(2)

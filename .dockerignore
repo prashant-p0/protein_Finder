@@ -1,0 +1,5 @@
+nutrition.db
+test_nutrition.db
+.env
+__pycache__/
+.git/
