@@ -2,11 +2,7 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-RUN apt-get update --fix-missing && apt-get install -y \
-    build-essential \
-    curl \
-    software-properties-common \
-    && rm -rf /var/lib/apt/lists/*
+
 
 COPY requirements.txt .
 
