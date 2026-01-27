@@ -5,6 +5,9 @@ import google.generativeai as genai
 from dotenv import find_dotenv, load_dotenv
 import re
 from PIL import Image
+import rag_engin as rag
+
+
 
 db.init_db()
 
@@ -27,6 +30,10 @@ if 'daily_carbs' not in st.session_state:
     st.session_state.daily_carbs = 0.0
 if 'daily_fats' not in st.session_state:
     st.session_state.daily_fats = 0.0
+if 'last_result' not in st.session_state:
+    st.session_state.last_result = None
+if 'kb_result' not in st.session_state:
+    st.session_state.kb_result = None
 
 # --- SIDEBAR: PROFILE & PROGRESS ---
 with st.sidebar:
@@ -84,88 +91,92 @@ with col_in2:
 if 'last_result' not in st.session_state:
     st.session_state.last_result = None
 
-if st.button("🔍 Analyze Meal & Update Log"):
+
+st.write("")
+btn_col1, btn_col2 = st.columns(2)
+
+with btn_col1:
+    analyze_clicked = st.button("🔍 Analyze Meal & Log", use_container_width=True)
+
+with btn_col2:
+    kb_clicked = st.button("📚 Search Science KB", use_container_width=True)
+
+# --- BUTTON LOGIC ---
+
+# 1. Analyze Meal Logic
+if analyze_clicked:
+    st.session_state.kb_result = None # Clear KB result when analyzing meal
     if not uploaded_file and not text_query:
-        st.warning("Please provide either a photo or a text description.")
+        st.warning("Please provide a photo or text description.")
     else:
-        
-        p, c, f, advice, food_name, source_tag =  0.0, 0.0, 0.0, 0.0,"", ""
-        
         cached_data = db.check_cache(text_query) if (text_query and not uploaded_file) else None
         
         if cached_data:
-            p,c,f,advice = cached_data
-            food_name = text_query
-            source_tag = " Local Cache"
-            st.write(f"DEBUG: Data from DB: {cached_data}")
+            p, c, f, advice = cached_data
+            st.session_state.last_result = {
+                "food": text_query, "p": p, "c": c, "f": f, "advice": advice, "source": "Local Cache"
+            }
         else:
-            
-            source_tag = " AI Analysis"
-            with st.spinner('AI is analyzing your meal...'):
-                # Prepare contents for Gemini
-                contents = []
-                if uploaded_file:
-                    contents.append(Image.open(uploaded_file))
-                
+            with st.spinner('AI analyzing...'):
+                contents = [Image.open(uploaded_file)] if uploaded_file else []
                 user_input = text_query if text_query else "the food in the image"
-                
-                prompt = f""" 
-                Analyze this food: {user_input}.
-                Return ONLY the following labels and values. Do not include introductory text.
-                NAME: [Brief name of food]
-                PROTEIN: [number only]
-                CARBS: [number only]
-                FATS: [number only]
-                ADVICE: [One short coaching tip]
-                """
+                prompt = f"""Analyze food: {user_input}. Return ONLY: NAME: [name], PROTEIN: [num], CARBS: [num], FATS: [num], ADVICE: [tip]"""
                 contents.append(prompt)
+                
                 response = model.generate_content(contents)
                 res_text = response.text
 
-                name_match = re.search(r"NAME:\s*(.*)", res_text, re.I)
-                p_match = re.search(r"PROTEIN:\s*([\d.]+)", res_text, re.I)
-                c_match = re.search(r"CARBS:\s*([\d.]+)", res_text, re.I)
-                f_match = re.search(r"FATS:\s*([\d.]+)", res_text, re.I)
-                advice_match = re.search(r"ADVICE:\s*(.*)", res_text, re.I)
+                # Regex parsing
+                n_m = re.search(r"NAME:\s*(.*)", res_text, re.I)
+                p_m = re.search(r"PROTEIN:\s*([\d.]+)", res_text, re.I)
+                c_m = re.search(r"CARBS:\s*([\d.]+)", res_text, re.I)
+                f_m = re.search(r"FATS:\s*([\d.]+)", res_text, re.I)
+                a_m = re.search(r"ADVICE:\s*(.*)", res_text, re.I)
 
-                food_name = name_match.group(1) if name_match else "Unknown Food"
-                p = float(p_match.group(1)) if p_match else 0.0
-                c = float(c_match.group(1)) if c_match else 0.0
-                f = float(f_match.group(1)) if f_match else 0.0
-                advice = advice_match.group(1) if advice_match else "Stay healthy!"
+                food_name = n_m.group(1) if n_m else "Unknown"
+                p, c, f = float(p_m.group(1)) if p_m else 0.0, float(c_m.group(1)) if c_m else 0.0, float(f_m.group(1)) if f_m else 0.0
+                advice = a_m.group(1) if a_m else "Eat well!"
                 
                 db.save_meal(food_name, p, c, f, advice)
+                st.session_state.last_result = {
+                    "food": food_name, "p": p, "c": c, "f": f, "advice": advice, "source": "AI Analysis"
+                }
+        st.rerun()
 
-        st.session_state.last_result = {
-                "food": food_name,
-                "p": p, "c": c, "f": f,
-                "advice": advice,
-                "source": source_tag
-            }
-        st.rerun()       
+# 2. Knowledge Base Logic
+if kb_clicked:
+    st.session_state.last_result = None # Clear meal result when searching KB
+    if not text_query:
+        st.warning("Please type a question in the text area to search the Knowledge Base.")
+    else:
+        with st.spinner('Searching Scientific PDFs...'):
+            answer = rag.ask_rag_assistant(text_query)
+            st.session_state.kb_result = answer
+        st.rerun()
 
+# --- DISPLAY RESULTS ---
+
+# Display Meal Analysis
 if st.session_state.last_result:
     res = st.session_state.last_result
-    
     st.divider()
-    # Display the Source Tag
     st.write(f"**Source:** `{res['source']}`")
-    
     st.subheader(f"🍽️ {res['food'].title()}")
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("🍗 Protein", f"{res['p']}g")
-    col2.metric("🍞 Carbs", f"{res['c']}g")
-    col3.metric("🥑 Fats", f"{res['f']}g")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("🍗 Protein", f"{res['p']}g")
+    m2.metric("🍞 Carbs", f"{res['c']}g")
+    m3.metric("🥑 Fats", f"{res['f']}g")
+    st.info(f"**AI Coach:** {res['advice']}")
 
+# Display KB Search
+if st.session_state.kb_result:
+    st.divider()
     st.markdown(f"""
-        <div style="background-color:#f0f7ff; padding:15px; border-radius:10px; border-left: 5px solid #2196f3; margin-top:10px;">
-            <span style="color:#01579b; font-weight:bold;">🤖 AI Coach Advice:</span><br>
-            <span style="color:#01579b;">{res['advice']}</span>
+        <div style="background-color:#e8f5e9; padding:20px; border-radius:10px; border-left: 8px solid #4caf50;">
+            <h3 style="color:#2e7d32; margin-top:0;">🔬 Scientific KB Result</h3>
+            <p style="color:#1b5e20; font-size:1.1em;">{st.session_state.kb_result}</p>
         </div>
     """, unsafe_allow_html=True)
 
-    st.write("")
-
-
-st.caption("Note: AI provides estimates based on general data. For clinical accuracy, consult a lab-tested database.")
+st.divider()
+st.caption("AI estimates for educational purposes. Run 'ingest.py' to update Knowledge Base.")
